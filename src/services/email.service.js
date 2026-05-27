@@ -1,15 +1,17 @@
-import fs from 'fs';
-import path from 'path';
-
 export const sendAlertEmail = async (alarmData) => {
-    console.log(" [Email] 1. Entrando a la función sendAlertEmail..."); 
-
     try {
-        console.log(" [Email] 2. Generando el diseño HTML del correo...");
+        const { default: nodemailer } = await import('nodemailer');
+
+        const gmailUser = process.env.EMAIL_GMAIL_USER;
+        const gmailAppPassword = process.env.EMAIL_GMAIL_APP_PASSWORD;
+
+        if (!gmailUser || !gmailAppPassword) {
+            throw new Error('Faltan EMAIL_GMAIL_USER o EMAIL_GMAIL_APP_PASSWORD en el entorno.');
+        }
 
         const htmlBody = `
             <div style="font-family: Arial, sans-serif; border: 1px solid #dcdcdc; padding: 20px; border-radius: 5px; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #d9534f; margin-top: 0;">⚠️ ALERTA DE SISTEMA - CRÍTICO</h2>
+                <h2 style="color: #d9534f; margin-top: 0;">ALERTA DE SISTEMA - CRÍTICO</h2>
                 <hr style="border: 0; border-top: 1px solid #eeeeee;" />
                 <p>Se ha detectado un valor fuera de rango en el monitoreo de planta:</p>
                 <table style="width: 100%; border-collapse: collapse;">
@@ -27,22 +29,59 @@ export const sendAlertEmail = async (alarmData) => {
                     </tr>
                 </table>
                 <hr style="border: 0; border-top: 1px solid #eeeeee;" />
-                <p style="font-size: 12px; color: #777777; margin-bottom: 0;">
-                    Simulación local: Este archivo representa el correo que se enviará al Outlook configurado: ${process.env.EMAIL_TEST_DESTINO}
-                </p>
             </div>
         `;
 
-        const nombreArchivo = `correo_alerta_${alarmData.Tag}.html`;
-        const rutaDestino = path.join(process.cwd(), nombreArchivo);
+        const transporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: {
+                user: gmailUser,
+                pass: gmailAppPassword
+            }
+        });
 
-        console.log(" [Email] 3. Escribiendo el archivo HTML en el disco local...");
-        
-        fs.writeFileSync(rutaDestino, htmlBody, 'utf-8');
+        const toEmail = alarmData.UsuarioEmail || process.env.EMAIL_TEST_DESTINO;
 
-        console.log(`\n [Email] Simulación Exitosa. Archivo generado en:\n ${rutaDestino}\n`);
+        if (!toEmail) {
+            throw new Error('No hay destinatario. Define UsuarioEmail o EMAIL_TEST_DESTINO.');
+        }
+
+        const mailOptions = {
+            from: gmailUser,
+            to: toEmail,
+            subject: `ALERTA: ${alarmData.Tag} | ${alarmData.TipoAlerta || 'Notificacion'}`,
+            text: `ALERTA DE SISTEMA\nTAG: ${alarmData.Tag}\nVALOR: ${alarmData.Valor}\nFECHA: ${alarmData.Fecha}`,
+            html: htmlBody
+        };
+
+        const maxAttempts = 3;
+        let lastError;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                await transporter.sendMail(mailOptions);
+                console.log(`Envio exitoso a ${toEmail}`);
+                lastError = null;
+                break;
+            } catch (sendError) {
+                lastError = sendError;
+                console.error(`Error en el envio (intento ${attempt}/${maxAttempts}): ${sendError.message}`);
+
+                if (attempt < maxAttempts) {
+                    const delayMs = attempt * 1500;
+                    console.log(`Reintentando en ${delayMs} ms...`);
+                    await new Promise((resolve) => setTimeout(resolve, delayMs));
+                }
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
         
     } catch (error) {
-        console.error(" [Email] Error en la simulación:", error.message);
+        console.error(`Error en el envio: ${error.message}`);
     }
 };

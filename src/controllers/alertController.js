@@ -7,7 +7,7 @@ export const handleNewAlert = async (alarmData) => {
     const { Tag, Valor, Fecha } = alarmData;
 
     try {
-        console.log(`\n[Controlador] Procesando tag: ${Tag} | Valor: ${Valor}`);
+        console.log(`\nProcesando tag: ${Tag} | Valor: ${Valor}`);
 
         const pool = await getPool();
 
@@ -23,37 +23,10 @@ export const handleNewAlert = async (alarmData) => {
                     ut.umbral_max
                 FROM usuarios u
                 JOIN usuarios_tags ut ON ut.usuario_id = u.id
-                LEFT JOIN planificacion_diaria pd ON pd.usuario_id = u.id AND pd.fecha = CONVERT(DATE, GETDATE())
-                LEFT JOIN turnos t ON (u.es_personal_4x4 = 1 AND pd.turno_id = t.id) OR (u.es_personal_4x4 = 0 AND t.nombre_turno = 'ADMINISTRATIVO')
                 WHERE ut.tag_nombre   = @tag
                   AND ut.activo       = 1
                   AND u.activo        = 1
                   AND ut.alerta_email = 1
-                  AND (
-                      -- Caso 1: Operador 4x4 Mañana o Tarde (Horarios normales de planta)
-                      (u.es_personal_4x4 = 1 AND t.hora_inicio <= t.hora_fin 
-                       AND CONVERT(TIME, GETDATE()) BETWEEN t.hora_inicio AND t.hora_fin)
-                      
-                      OR
-                      
-                      -- Caso 2: Operador 4x4 Noche (Cruza la medianoche)
-                      (u.es_personal_4x4 = 1 AND t.hora_inicio > t.hora_fin 
-                       AND (CONVERT(TIME, GETDATE()) >= t.hora_inicio OR CONVERT(TIME, GETDATE()) <= t.hora_fin))
-                      
-                      OR
-                      
-                      -- Caso 3: Administrativo Lunes a Martes (08:00 a 17:00)
-                      (u.es_personal_4x4 = 0 
-                       AND DATEPART(dw, GETDATE()) IN (2, 3) 
-                       AND CONVERT(TIME, GETDATE()) BETWEEN '08:00:00' AND '17:00:00')
-                      
-                      OR
-                      
-                      -- Caso 4: Administrativo Miércoles a Viernes (08:00 a 16:30)
-                      (u.es_personal_4x4 = 0 
-                       AND DATEPART(dw, GETDATE()) IN (4, 5, 6) 
-                       AND CONVERT(TIME, GETDATE()) BETWEEN '08:00:00' AND '16:30:00')
-                  )
                   AND (
                       (ut.umbral_max IS NOT NULL AND @valor > ut.umbral_max) OR
                       (ut.umbral_min IS NOT NULL AND @valor < ut.umbral_min) OR
@@ -64,17 +37,16 @@ export const handleNewAlert = async (alarmData) => {
         const usuarios = result.recordset;
 
         if (usuarios.length === 0) {
-            console.log(`[Controlador] Sin usuarios en turno o rango para notificar para ${Tag} = ${Valor}`);
+            console.log(`Sin usuarios para notificar para ${Tag} = ${Valor}`);
             return;
         }
 
-        console.log(`[Controlador] ${usuarios.length} usuario(s) detectado(s) en turno activo`);
+        console.log(`${usuarios.length} usuario(s) detectado(s) para notificar`);
 
         for (const usuario of usuarios) {
             const tipoAlerta = calcularTipoAlerta(Valor, usuario.umbral_min, usuario.umbral_max);
 
-            // Esto imprimirá el correo real en consola, pero la salida será el archivo local .html
-            console.log(`  → Generando simulación local para: ${usuario.email} | ${tipoAlerta}`);
+            console.log(`  → Enviando correo a: ${usuario.email} | ${tipoAlerta}`);
 
             await sendAlertEmail({
                 ...alarmData,
@@ -92,7 +64,7 @@ export const handleNewAlert = async (alarmData) => {
         }
 
     } catch (error) {
-        console.error('[Controlador] Error en handleNewAlert:', error.message);
+        console.error('Error en handleNewAlert:', error.message);
     }
 };
 
@@ -114,6 +86,6 @@ async function registrarLog(pool, { usuarioId, tag, valor, tipoAlerta }) {
                 VALUES (@usuarioId, @tag, @valor, @tipoAlerta)
             `);
     } catch (err) {
-        console.error('[Controlador] Error al registrar log:', err.message);
+        console.error('Error al registrar log:', err.message);
     }
 }

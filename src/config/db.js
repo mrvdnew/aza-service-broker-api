@@ -22,7 +22,7 @@ let pool;
 export const getPool = async () => {
     if (!pool) {
         pool = await sql.connect(config);
-        console.log('[DB] Pool de usuarios conectado');
+        console.log('Pool de usuarios conectado');
     }
     return pool;
 };
